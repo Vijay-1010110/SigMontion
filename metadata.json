@@ -1,0 +1,5 @@
+{
+  "name": "SigMotion",
+  "description": "An AI-powered application for refining, analyzing, and animating handwritten signatures using Gemini models.",
+  "requestFramePermissions": []
+}
