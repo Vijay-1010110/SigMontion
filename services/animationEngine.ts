@@ -21,6 +21,7 @@ export class AnimationEngine {
 
   private onComplete?: () => void;
   private onVideoGenerated?: (url: string) => void;
+  private onProgress?: (progress: number) => void;
 
   private rafId: number | null = null;
   private startTime: number = 0;
@@ -33,6 +34,7 @@ export class AnimationEngine {
   private exportFormat: ExportFormat | null = null;
   private gifEncoder: GIFEncoder | null = null;
   private gifFrameDelay: number = 50; // ms
+  private palette: number[][] | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -44,7 +46,8 @@ export class AnimationEngine {
     thicknessScale: number = 1.0,
     targetDuration: number = 2.0,
     onComplete?: () => void,
-    onVideoGenerated?: (url: string) => void
+    onVideoGenerated?: (url: string) => void,
+    onProgress?: (progress: number) => void
   ) {
     this.canvas = canvas;
     const context = canvas.getContext('2d', { 
@@ -64,6 +67,7 @@ export class AnimationEngine {
 
     this.onComplete = onComplete;
     this.onVideoGenerated = onVideoGenerated;
+    this.onProgress = onProgress;
     
     this.audioSynth = new AudioSynth();
   }
@@ -86,6 +90,27 @@ export class AnimationEngine {
 
   public setSoundEnabled(enabled: boolean) {
     this.soundEnabled = enabled;
+  }
+
+  private precomputePalette() {
+    if (!this.strokeColor || !this.bgColor) return;
+    
+    const bg = this.hexToRgb(this.bgColor);
+    const ink = this.hexToRgb(this.strokeColor);
+    const p: number[][] = [];
+    // Optimization: 64 levels of interpolation is sufficient for signature anti-aliasing
+    // drastically reducing palette matching time compared to 256 colors.
+    const levels = 64; 
+
+    for (let i = 0; i < levels; i++) {
+       const t = i / (levels - 1);
+       p.push([
+          Math.round(bg.r + (ink.r - bg.r) * t),
+          Math.round(bg.g + (ink.g - bg.g) * t),
+          Math.round(bg.b + (ink.b - bg.b) * t)
+       ]);
+    }
+    this.palette = p;
   }
 
   public drawDebug() {
@@ -239,6 +264,7 @@ export class AnimationEngine {
         this.setupVideoRecording(exportFormat === 'mp4'); // Pass true if audio needed
         setTimeout(() => this.startVideoRecording(), 50);
     } else if (exportFormat === 'gif') {
+        this.precomputePalette();
         this.setupGifRecording();
     }
 
@@ -247,6 +273,13 @@ export class AnimationEngine {
     
     const loop = (now: number) => {
       const elapsed = now - this.startTime;
+
+      // Report progress (only during export to prevent excessive re-renders)
+      if (this.onProgress && this.exportFormat && loopDuration > 0) {
+        const p = Math.min(100, Math.round((elapsed / loopDuration) * 100));
+        this.onProgress(p);
+      }
+
       this.fillBackground();
       this.setupContextDefaults();
       this.setupShadows();
@@ -317,6 +350,7 @@ export class AnimationEngine {
     }
     this.audioSynth.stop();
     this.exportFormat = null;
+    this.palette = null;
     if (this.onComplete) this.onComplete();
   }
 
@@ -456,12 +490,19 @@ export class AnimationEngine {
   private captureGifFrame() {
     if (!this.gifEncoder) return;
     const { width, height } = this.canvas;
-    // Get raw data
     const imageData = this.ctx.getImageData(0, 0, width, height);
-    // Quantize
-    const palette = quantize(imageData.data, 256);
-    const index = applyPalette(imageData.data, palette);
-    // Write
+    
+    // Use precomputed palette if available (Major Optimization), else quantize
+    let palette = this.palette;
+    let index: Uint8Array;
+    
+    if (palette) {
+        index = applyPalette(imageData.data, palette);
+    } else {
+        palette = quantize(imageData.data, 256);
+        index = applyPalette(imageData.data, palette);
+    }
+
     this.gifEncoder.writeFrame(index, width, height, { 
         palette, 
         delay: this.gifFrameDelay 

@@ -16,6 +16,7 @@ interface CanvasAnimatorProps {
   animationDuration?: number; // seconds
   onAnimationComplete?: () => void;
   onVideoGenerated?: (url: string) => void;
+  onExportProgress?: (progress: number) => void;
   className?: string;
 }
 
@@ -36,10 +37,26 @@ export const CanvasAnimator = forwardRef<CanvasAnimatorHandle, CanvasAnimatorPro
   animationDuration = 2.0,
   onAnimationComplete,
   onVideoGenerated,
+  onExportProgress,
   className
 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<AnimationEngine | null>(null);
+
+  // Store callbacks in ref to prevent engine re-creation on render
+  const callbacksRef = useRef({
+    onAnimationComplete,
+    onVideoGenerated,
+    onExportProgress
+  });
+
+  useEffect(() => {
+    callbacksRef.current = {
+      onAnimationComplete,
+      onVideoGenerated,
+      onExportProgress
+    };
+  }, [onAnimationComplete, onVideoGenerated, onExportProgress]);
 
   useImperativeHandle(ref, () => ({
     exportAnimation: (format: ExportFormat) => {
@@ -97,8 +114,9 @@ export const CanvasAnimator = forwardRef<CanvasAnimatorHandle, CanvasAnimatorPro
          bgColor,
          thicknessScale,
          animationDuration,
-         onAnimationComplete,
-         onVideoGenerated
+         () => callbacksRef.current.onAnimationComplete?.(),
+         (url) => callbacksRef.current.onVideoGenerated?.(url),
+         (p) => callbacksRef.current.onExportProgress?.(p)
        );
        
        engineRef.current.setSoundEnabled(soundEnabled);

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { PenTool, Wand2, Search, Play, X, Download, MessageSquare, BrainCircuit, Settings2, Video, Activity, Eye, EyeOff, AlertTriangle, Cpu, Layers, Trash2, CheckCircle2, Palette, PaintBucket, MoveVertical, Timer, Split, Volume2, VolumeX, FileVideo, FileType } from 'lucide-react';
+
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { PenTool, Wand2, Search, Play, X, MessageSquare, BrainCircuit, Settings2, Video, Activity, Eye, EyeOff, AlertTriangle, Cpu, Layers, Trash2, CheckCircle2, Palette, PaintBucket, MoveVertical, Timer, Split, Volume2, VolumeX, FileVideo, FileType } from 'lucide-react';
 import { AppMode, SignatureAnalysis, HandwritingStyle, HandwritingStyleKey } from './types';
 import { refineSignature, editSignature, generateRapidInsight } from './services/geminiService';
 import { analyzeSignatureLocal } from './services/localTracer';
@@ -79,6 +80,7 @@ function App() {
   const [showStrokeOrder, setShowStrokeOrder] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
   
   // Appearance State
   const [strokeColor, setStrokeColor] = useState<string>('#111111');
@@ -97,19 +99,19 @@ function App() {
 
   const animatorRef = useRef<CanvasAnimatorHandle>(null);
 
+  const activePreset = useMemo<HandwritingStyle>(() => ({
+    ...PRESETS[selectedPresetKey],
+    inertia_factor: inertiaFactor,
+    micro_tremor_amp_px: tremorAmp,
+    micro_tremor_freq_hz: tremorFreq
+  }), [selectedPresetKey, inertiaFactor, tremorAmp, tremorFreq]);
+
   useEffect(() => {
     const preset = PRESETS[selectedPresetKey];
     setInertiaFactor(preset.inertia_factor);
     setTremorAmp(preset.micro_tremor_amp_px);
     setTremorFreq(preset.micro_tremor_freq_hz);
   }, [selectedPresetKey]);
-
-  const activePreset: HandwritingStyle = {
-    ...PRESETS[selectedPresetKey],
-    inertia_factor: inertiaFactor,
-    micro_tremor_amp_px: tremorAmp,
-    micro_tremor_freq_hz: tremorFreq
-  };
 
   const activeItem = items.find(i => i.id === activeId) || null;
   const isLoading = activeItem && ['refining', 'analyzing', 'editing'].includes(activeItem.status);
@@ -257,19 +259,9 @@ function App() {
     setShowStrokeOrder(false);
   };
 
-  const handleDownloadImage = () => {
-    if (!activeItem) return;
-    const img = getActiveImage(activeItem);
-    const link = document.createElement('a');
-    link.href = img;
-    link.download = `sigmotion-${activeItem.id}-${activeItem.selectedSource}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   const triggerExport = (format: ExportFormat) => {
     if (animatorRef.current) {
+        setExportProgress(0);
         setIsExporting(true);
         setShowDownloadModal(false);
         animatorRef.current.exportAnimation(format);
@@ -606,14 +598,6 @@ function App() {
                       >
                         <Video className="w-4 h-4" />
                     </button>
-
-                    <button
-                      onClick={handleDownloadImage}
-                      className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-300"
-                      title="Download Image"
-                    >
-                      <Download className="w-5 h-5" />
-                    </button>
                     </>
                   )}
                 </div>
@@ -736,6 +720,13 @@ function App() {
                     <div className="absolute inset-0 z-20 bg-black/80 flex flex-col items-center justify-center animate-in fade-in">
                         <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
                         <span className="text-sm font-medium text-blue-200 animate-pulse">Generating File...</span>
+                        <div className="w-48 bg-gray-700 rounded-full h-2 mt-4 overflow-hidden">
+                            <div 
+                                className="bg-blue-500 h-full transition-all duration-200" 
+                                style={{width: `${exportProgress}%`}}
+                            ></div>
+                        </div>
+                        <span className="text-xs text-gray-400 mt-2">{exportProgress}%</span>
                     </div>
                 )}
 
@@ -764,6 +755,7 @@ function App() {
                       animationDuration={duration}
                       onAnimationComplete={() => setIsAnimating(false)}
                       onVideoGenerated={handleVideoGenerated}
+                      onExportProgress={setExportProgress}
                       className="w-full h-full min-h-[300px]"
                     />
                   ) : (
